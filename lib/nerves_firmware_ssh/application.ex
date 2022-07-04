@@ -5,12 +5,18 @@ defmodule Nerves.Firmware.SSH.Application do
 
   @default_system_dir "/etc/ssh"
 
+  @otp System.otp_release() |> Integer.parse() |> elem(0)
+
   # Check the keys passed in via application env.
   compile_time_keys = Application.get_env(:nerves_firmware_ssh, :authorized_keys, [])
 
   for key <- compile_time_keys do
     try do
-      :pubkey_ssh.decode(key, :public_key)
+      if @otp >= 24 do
+        :ssh_file.decode(key, :auth_keys)
+      else
+        :public_key.ssh_decode(key, :auth_keys)
+      end
     catch
       _, _ ->
         Mix.raise("""
@@ -37,7 +43,7 @@ defmodule Nerves.Firmware.SSH.Application do
       Application.get_env(:nerves_firmware_ssh, :authorized_keys, [])
       |> Enum.join("\n")
 
-    decoded_authorized_keys = :public_key.ssh_decode(authorized_keys, :auth_keys)
+    decoded_authorized_keys = decode_key(authorized_keys)
 
     cb_opts = [authorized_keys: decoded_authorized_keys]
 
@@ -77,5 +83,13 @@ defmodule Nerves.Firmware.SSH.Application do
       {:ok, _} -> true
       _ -> false
     end
+  end
+
+  # :public_key.ssh_decode/2 was deprecated in OTP 24 and will be removed in OTP 26.
+  # :ssh_file.decode/2 was introduced in OTP 24
+  if @otp >= 24 do
+    defp decode_key(key), do: :ssh_file.decode(key, :auth_keys)
+  else
+    defp decode_key(key), do: :public_key.ssh_decode(key, :auth_keys)
   end
 end
